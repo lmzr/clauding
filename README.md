@@ -122,4 +122,4 @@ pytest --cov=clauding
 
 ## License
 
-MIT
+GPL-3.0
