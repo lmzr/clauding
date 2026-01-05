@@ -33,11 +33,6 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="Show what would be done without making changes",
     )
     parser.add_argument(
-        "--interactive", "-i",
-        action="store_true",
-        help="Run in interactive mode to fix multiple projects",
-    )
-    parser.add_argument(
         "--no-backup",
         action="store_true",
         help="Skip creating a backup before changes",
@@ -49,11 +44,12 @@ def execute(args: argparse.Namespace) -> int:
     """Execute the move command."""
     config = ClaudeConfig(claude_dir=args.claude_dir)
 
-    if args.interactive:
+    # No args = wizard mode
+    if not args.old_path and not args.new_path:
         return interactive_mode(config, args.dry_run, args.no_backup)
 
     if not args.old_path or not args.new_path:
-        print("Error: OLD_PATH and NEW_PATH are required (or use --interactive)")
+        print("Error: Both OLD_PATH and NEW_PATH are required")
         return 1
 
     # Convert to absolute paths (Claude stores absolute paths)

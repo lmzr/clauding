@@ -18,7 +18,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         description="Clean up Claude Code configuration for deleted projects.",
     )
     parser.add_argument(
-        "--all", "-a",
+        "--force", "-f",
         action="store_true",
         help="Clean all orphaned references without prompts",
     )
@@ -32,11 +32,6 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         action="append",
         dest="paths",
         help="Specific path(s) to clean (can be repeated)",
-    )
-    parser.add_argument(
-        "--interactive", "-i",
-        action="store_true",
-        help="Run in interactive mode (default if no options)",
     )
     parser.add_argument(
         "--no-backup",
@@ -69,8 +64,8 @@ def execute(args: argparse.Namespace) -> int:
     if args.dry_run:
         return show_dry_run(orphans)
 
-    # All mode - clean everything
-    if getattr(args, "all", False):
+    # Force mode - clean everything
+    if args.force:
         return clean_all(config, orphans, args.no_backup)
 
     # Interactive mode (default)

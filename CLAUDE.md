@@ -6,17 +6,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `clauding` is a CLI tool for managing Claude Code project references when folders are moved or renamed.
 
+## Installation
+
+When asked to install `clauding` globally, run:
+
+```bash
+./scripts/install.sh
+```
+
+This script uses `pipx` to install `clauding` as a global command.
+
 ## Commands
 
 ```bash
-# Setup
+# Development setup
 python3 -m venv .venv && source .venv/bin/activate
-pip install ".[dev]"
+pip install -e ".[dev]"
 
 # Run CLI
-clauding list
-clauding move OLD NEW
-clauding clean
+clauding list [paths...]           # List all or specific projects
+clauding list --problems           # Show only missing paths
+clauding move                      # Interactive wizard mode
+clauding move OLD NEW              # Direct move
+clauding clean                     # Interactive cleanup
+clauding clean --force             # Clean all without prompts
 
 # Run tests
 pytest
@@ -36,6 +49,8 @@ src/clauding/
     ├── list_cmd.py     # clauding list
     ├── move.py         # clauding move
     └── clean.py        # clauding clean
+scripts/
+└── install.sh          # Global installation script (pipx)
 ```
 
 ### Claude Code Data Locations

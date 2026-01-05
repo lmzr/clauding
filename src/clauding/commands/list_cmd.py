@@ -16,6 +16,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         description="List all projects known to Claude Code with their status.",
     )
     parser.add_argument(
+        "paths",
+        nargs="*",
+        help="Specific path(s) to check (default: all projects)",
+    )
+    parser.add_argument(
         "--problems", "-p",
         action="store_true",
         help="Show only projects with missing paths",
@@ -33,7 +38,15 @@ def execute(args: argparse.Namespace) -> int:
     config = ClaudeConfig(claude_dir=args.claude_dir)
     all_paths = find_all_project_paths(config)
 
-    if not all_paths:
+    # Filter to specific paths if provided
+    not_referenced = []
+    if args.paths:
+        requested = {str(Path(p).resolve()) for p in args.paths}
+        filtered = {path: info for path, info in all_paths.items() if path in requested}
+        not_referenced = sorted(requested - set(filtered.keys()))
+        all_paths = filtered
+
+    if not all_paths and not not_referenced:
         print("No projects found.")
         return 0
 
@@ -46,13 +59,17 @@ def execute(args: argparse.Namespace) -> int:
 
     # JSON output
     if args.json:
-        print(json.dumps(all_paths, indent=2, default=str))
+        output = {"projects": all_paths}
+        if not_referenced:
+            output["not_referenced"] = not_referenced
+        print(json.dumps(output, indent=2, default=str))
         return 0
 
     # Human-readable output
-    count = len(all_paths)
-    suffix = " with problems" if args.problems else ""
-    print(f"Found {count} project(s){suffix}:\n")
+    if all_paths:
+        count = len(all_paths)
+        suffix = " with problems" if args.problems else ""
+        print(f"Found {count} project(s){suffix}:\n")
 
     for path, info in sorted(all_paths.items()):
         status = "EXISTS" if info["exists"] else "NOT FOUND"
@@ -73,6 +90,13 @@ def execute(args: argparse.Namespace) -> int:
 
         if sources_desc:
             print(f"  Sources: {', '.join(sources_desc)}")
+        print()
+
+    # Show paths not referenced by Claude
+    if not_referenced:
+        print("Not referenced by Claude:")
+        for path in not_referenced:
+            print(f"  {path}")
         print()
 
     return 0

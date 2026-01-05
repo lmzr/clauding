@@ -12,7 +12,10 @@ brew install pipx
 pipx ensurepath
 
 # Install clauding globally
-pipx install /path/to/ClaudeCodeTools
+pipx install /path/to/ClaudingTools
+
+# Or use the install script
+./scripts/install.sh
 
 # Now available from anywhere
 clauding list
@@ -21,7 +24,7 @@ clauding list
 ### For developers
 
 ```bash
-cd ClaudeCodeTools
+cd ClaudingTools
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -35,11 +38,17 @@ pip install -e ".[dev]"
 # List all projects
 clauding list
 
+# Check specific paths
+clauding list /path/to/project1 /path/to/project2
+
 # List only projects with missing paths
 clauding list --problems
 
 # Output as JSON
 clauding list --json
+
+# Combine options
+clauding list /path/to/project --json
 ```
 
 ### Move Project
@@ -47,14 +56,14 @@ clauding list --json
 Move a project folder and update all Claude Code references.
 
 ```bash
-# Move project (moves folder + updates metadata)
+# Interactive wizard mode (finds orphaned projects)
+clauding move
+
+# Direct move (moves folder + updates metadata)
 clauding move /old/path /new/path
 
 # Preview changes without applying
 clauding move /old/path /new/path --dry-run
-
-# Interactive mode for multiple projects
-clauding move --interactive
 ```
 
 **Behavior:**
@@ -71,7 +80,7 @@ Remove references to projects that no longer exist on disk.
 clauding clean
 
 # Clean all orphans without prompts
-clauding clean --all
+clauding clean --force
 
 # Preview what would be cleaned
 clauding clean --dry-run
@@ -85,10 +94,9 @@ clauding clean --path /path/to/deleted/project
 | Flag | Commands | Description |
 |------|----------|-------------|
 | `--dry-run`, `-n` | move, clean | Preview without changes |
+| `--force`, `-f` | clean | Clean all without prompts |
 | `--problems`, `-p` | list | Show only missing paths |
 | `--json`, `-j` | list | JSON output |
-| `--interactive`, `-i` | move, clean | Interactive mode |
-| `--all`, `-a` | clean | Clean all without prompts |
 | `--path`, `-p` | clean | Specific path to clean |
 | `--no-backup` | move, clean | Skip backup creation |
 | `--claude-dir` | all | Custom .claude directory |
@@ -106,7 +114,7 @@ When you move or rename a project folder, Claude Code loses track of it because 
 
 ```bash
 # Install dev dependencies
-pip install ".[dev]"
+pip install -e ".[dev]"
 
 # Run tests
 pytest

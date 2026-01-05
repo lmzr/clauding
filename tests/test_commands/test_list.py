@@ -19,6 +19,7 @@ class TestListCommand:
 
         args = Namespace(
             claude_dir=mock_claude_env["claude_dir"],
+            paths=[],
             problems=False,
             json=False,
         )
@@ -33,6 +34,7 @@ class TestListCommand:
         """Test list with a project."""
         args = Namespace(
             claude_dir=mock_claude_env["claude_dir"],
+            paths=[],
             problems=False,
             json=False,
         )
@@ -57,6 +59,7 @@ class TestListCommand:
 
         args = Namespace(
             claude_dir=mock_claude_env["claude_dir"],
+            paths=[],
             problems=True,
             json=False,
         )
@@ -71,6 +74,7 @@ class TestListCommand:
         """Test list --problems with missing project."""
         args = Namespace(
             claude_dir=mock_claude_env["claude_dir"],
+            paths=[],
             problems=True,
             json=False,
         )
@@ -86,6 +90,7 @@ class TestListCommand:
         """Test list with JSON output."""
         args = Namespace(
             claude_dir=mock_claude_env["claude_dir"],
+            paths=[],
             problems=False,
             json=True,
         )
@@ -97,6 +102,7 @@ class TestListCommand:
 
         # Parse JSON output
         data = json.loads(captured.out)
-        assert mock_project["path"] in data
-        assert "exists" in data[mock_project["path"]]
-        assert "sources" in data[mock_project["path"]]
+        assert "projects" in data
+        assert mock_project["path"] in data["projects"]
+        assert "exists" in data["projects"][mock_project["path"]]
+        assert "sources" in data["projects"][mock_project["path"]]
