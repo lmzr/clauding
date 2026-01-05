@@ -61,8 +61,8 @@ class TestMoveProject:
         assert str(new_path) in all_paths
         assert mock_project["path"] not in all_paths
 
-    def test_move_error_both_exist(self, mock_claude_env, mock_project):
-        """Test move error when both paths exist."""
+    def test_move_into_existing_directory(self, mock_claude_env, mock_project):
+        """Test move into existing directory puts source inside it."""
         # Create both folders
         old_path = Path(mock_project["path"])
         new_path = old_path.parent / "NewProject"
@@ -77,7 +77,12 @@ class TestMoveProject:
             no_backup=True,
         )
 
-        assert result == 1
+        # Should succeed - source moved inside destination
+        assert result == 0
+        # Source should be moved inside destination
+        final_path = new_path / old_path.name
+        assert final_path.exists()
+        assert not old_path.exists()
 
     def test_move_error_neither_exist(self, mock_claude_env, mock_project):
         """Test move error when neither path exists."""

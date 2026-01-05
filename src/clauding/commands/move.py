@@ -71,22 +71,47 @@ def move_project(
 
     Behavior:
     - If OLD exists and NEW doesn't: move folder, then update metadata
+    - If OLD exists and NEW is a directory: move OLD inside NEW
     - If OLD doesn't exist and NEW exists: skip folder move, only update metadata
-    - If both exist or neither exists: error
+    - Neither exists: error
     """
-    old_exists = Path(old_path).exists()
-    new_exists = Path(new_path).exists()
+    old_p = Path(old_path)
+    new_p = Path(new_path)
+
+    # Validate: paths must be directories, not files
+    if old_p.exists() and not old_p.is_dir():
+        print(f"Error: Source is not a directory: {old_path}")
+        return 1
+
+    if new_p.exists() and not new_p.is_dir():
+        print(f"Error: Destination is not a directory: {new_path}")
+        return 1
+
+    # If both exist as directories, move source inside destination
+    if old_p.exists() and new_p.exists():
+        new_path = str(new_p / old_p.name)
+        new_p = Path(new_path)
+        if new_p.exists():
+            print(f"Error: Destination already exists: {new_path}")
+            return 1
+
+    # Protection against self-move
+    if old_path == new_path:
+        print(f"Error: Source and destination are the same")
+        return 1
+
+    if new_path.startswith(old_path + "/"):
+        print(f"Error: Cannot move a folder into itself")
+        return 1
 
     # Determine action
+    old_exists = old_p.exists()
+    new_exists = new_p.exists()
+
     if old_exists and not new_exists:
         need_folder_move = True
     elif not old_exists and new_exists:
         need_folder_move = False
-    elif old_exists and new_exists:
-        print(f"Error: Both paths exist")
-        print(f"  Old: {old_path}")
-        print(f"  New: {new_path}")
-        return 1
     else:
         print(f"Error: Neither path exists")
         print(f"  Old: {old_path}")

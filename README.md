@@ -68,8 +68,11 @@ clauding move /old/path /new/path --dry-run
 
 **Behavior:**
 - If OLD exists and NEW doesn't: moves folder, then updates metadata
+- If OLD exists and NEW is a directory: moves OLD inside NEW (e.g., `/a/proj` → `/b/` becomes `/b/proj`)
 - If OLD doesn't exist and NEW exists: only updates metadata (folder already moved)
-- If both exist or neither exists: error
+- Neither exists: error
+- Files are rejected (directories only)
+- Moving a folder into itself is prevented
 
 ### Clean Orphaned References
 
