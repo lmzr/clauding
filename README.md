@@ -92,16 +92,42 @@ clauding clean --dry-run
 clauding clean --path /path/to/deleted/project
 ```
 
+### Manage Backups
+
+List and prune configuration backups created by move and clean commands.
+
+```bash
+# List all backups
+clauding backups
+
+# List in JSON format
+clauding backups --json
+
+# Delete old backups (requires --prune)
+clauding backups --prune --older-than 30    # Older than 30 days
+clauding backups --prune --keep 5           # Keep only 5 most recent
+clauding backups --prune --older-than 7 --keep 3  # Combined criteria
+
+# Preview without deleting
+clauding backups --prune --keep 5 --dry-run
+
+# Delete without confirmation
+clauding backups --prune --keep 5 --force
+```
+
 ## Options
 
 | Flag | Commands | Description |
 |------|----------|-------------|
-| `--dry-run`, `-n` | move, clean | Preview without changes |
-| `--force`, `-f` | clean | Clean all without prompts |
+| `--dry-run`, `-n` | move, clean, backups | Preview without changes |
+| `--force`, `-f` | clean, backups | Skip confirmation prompts |
 | `--problems`, `-p` | list | Show only missing paths |
-| `--json`, `-j` | list | JSON output |
+| `--json`, `-j` | list, backups | JSON output |
 | `--path`, `-p` | clean | Specific path to clean |
 | `--no-backup` | move, clean | Skip backup creation |
+| `--prune` | backups | Enable deletion mode |
+| `--older-than` | backups | Delete backups older than N days |
+| `--keep` | backups | Keep only N most recent backups |
 | `--claude-dir` | all | Custom .claude directory |
 
 ## How It Works

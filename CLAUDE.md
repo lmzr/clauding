@@ -30,6 +30,8 @@ clauding move                      # Interactive wizard mode
 clauding move OLD NEW              # Direct move
 clauding clean                     # Interactive cleanup
 clauding clean --force             # Clean all without prompts
+clauding backups                   # List all backups
+clauding backups --prune --keep 5  # Keep only 5 most recent
 
 # Run tests
 pytest
@@ -48,7 +50,8 @@ src/clauding/
 └── commands/
     ├── list_cmd.py     # clauding list
     ├── move.py         # clauding move
-    └── clean.py        # clauding clean
+    ├── clean.py        # clauding clean
+    └── backups.py      # clauding backups
 scripts/
 └── install.sh          # Global installation script (pipx)
 ```

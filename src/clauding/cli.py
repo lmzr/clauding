@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from clauding import __version__
-from clauding.commands import list_cmd, move, clean
+from clauding.commands import list_cmd, move, clean, backups
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -32,6 +32,7 @@ def create_parser() -> argparse.ArgumentParser:
     list_cmd.register(subparsers)
     move.register(subparsers)
     clean.register(subparsers)
+    backups.register(subparsers)
 
     return parser
 
