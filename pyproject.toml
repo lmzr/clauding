@@ -8,6 +8,9 @@ version = "1.0.0"
 description = "Claude Code project management tool"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [
+    { name = "lmzr" }
+]
 license = {text = "GPL-3.0-or-later"}
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -32,6 +35,10 @@ dev = [
 
 [project.scripts]
 clauding = "clauding.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/lmzr/clauding"
+Repository = "https://github.com/lmzr/clauding"
 
 [tool.setuptools.packages.find]
 where = ["src"]
