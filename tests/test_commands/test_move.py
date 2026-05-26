@@ -4,11 +4,47 @@ import json
 import os
 from argparse import Namespace
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from clauding.commands.move import execute, move_project
 from clauding.core.paths import normalize_path_to_dirname, find_all_project_paths
+
+
+def _register_mock_project(mock_claude_env, project_path: str) -> dict:
+    """Register a fake project at the given path in the mock Claude env."""
+    dirname = normalize_path_to_dirname(project_path)
+    project_dir = mock_claude_env["projects_dir"] / dirname
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    session_file = project_dir / "session-001.jsonl"
+    session_data = {
+        "cwd": project_path,
+        "sessionId": "session-001",
+        "type": "user",
+        "message": {"role": "user", "content": "test"},
+    }
+    session_file.write_text(json.dumps(session_data) + "\n")
+
+    history_entry = {
+        "display": "test prompt",
+        "project": project_path,
+        "timestamp": 1234567890,
+    }
+    with open(mock_claude_env["history_file"], "a", encoding="utf-8") as f:
+        f.write(json.dumps(history_entry) + "\n")
+
+    claude_json_data = json.loads(mock_claude_env["claude_json_file"].read_text())
+    claude_json_data.setdefault("projects", {})[project_path] = {"allowedTools": []}
+    mock_claude_env["claude_json_file"].write_text(json.dumps(claude_json_data))
+
+    return {
+        "path": project_path,
+        "dirname": dirname,
+        "session_file": session_file,
+        "project_dir": project_dir,
+    }
 
 
 class TestMoveProject:
@@ -259,3 +295,228 @@ class TestExecuteRelativePaths:
             assert (temp_dir / "NewProject").exists()
         finally:
             os.chdir(original_cwd)
+
+
+class TestMovePrefix:
+    """Tests for bulk-rename mode (OLD is a prefix of multiple projects)."""
+
+    def test_move_prefix_match(self, mock_claude_env):
+        """Three projects under /tmp/parent are all rewritten when renaming /tmp/parent -> /tmp/renamed."""
+        temp_dir = mock_claude_env["claude_dir"].parent
+        old_parent = temp_dir / "parent"
+        new_parent = temp_dir / "renamed"
+
+        # Create three projects on disk and register them
+        projects = ["projA", "projB", "projC"]
+        for name in projects:
+            (old_parent / name).mkdir(parents=True)
+            _register_mock_project(mock_claude_env, str(old_parent / name))
+
+        result = move_project(
+            mock_claude_env["config"],
+            str(old_parent),
+            str(new_parent),
+            dry_run=False,
+            no_backup=True,
+            yes=True,
+        )
+
+        assert result == 0
+
+        # All three projects rewritten in all three data locations
+        all_paths = find_all_project_paths(mock_claude_env["config"])
+        for name in projects:
+            assert str(new_parent / name) in all_paths
+            assert str(old_parent / name) not in all_paths
+
+        # Folder physically moved
+        assert not old_parent.exists()
+        assert new_parent.exists()
+        for name in projects:
+            assert (new_parent / name).exists()
+
+    def test_move_prefix_dry_run(self, mock_claude_env):
+        """Dry-run lists changes but writes nothing."""
+        temp_dir = mock_claude_env["claude_dir"].parent
+        old_parent = temp_dir / "parent"
+        new_parent = temp_dir / "renamed"
+
+        for name in ["projA", "projB"]:
+            (old_parent / name).mkdir(parents=True)
+            _register_mock_project(mock_claude_env, str(old_parent / name))
+
+        before = find_all_project_paths(mock_claude_env["config"])
+
+        result = move_project(
+            mock_claude_env["config"],
+            str(old_parent),
+            str(new_parent),
+            dry_run=True,
+            no_backup=True,
+            yes=True,
+        )
+
+        assert result == 0
+        # Nothing on disk changed
+        assert old_parent.exists()
+        assert not new_parent.exists()
+        # Metadata unchanged
+        after = find_all_project_paths(mock_claude_env["config"])
+        assert set(before.keys()) == set(after.keys())
+
+    def test_move_prefix_no_match_errors(self, mock_claude_env):
+        """OLD that is neither an exact project path nor a prefix returns error."""
+        temp_dir = mock_claude_env["claude_dir"].parent
+
+        result = move_project(
+            mock_claude_env["config"],
+            str(temp_dir / "does-not-exist"),
+            str(temp_dir / "whatever"),
+            dry_run=False,
+            no_backup=True,
+            yes=True,
+        )
+
+        assert result == 1
+
+    def test_move_prefix_partial_name_not_matched(self, mock_claude_env):
+        """`/tmp/data` must not match `/tmp/database` (prefix-of-path, not substring)."""
+        temp_dir = mock_claude_env["claude_dir"].parent
+        data_proj = temp_dir / "data"
+        database_proj = temp_dir / "database"
+
+        data_proj.mkdir()
+        database_proj.mkdir()
+        _register_mock_project(mock_claude_env, str(data_proj))
+        _register_mock_project(mock_claude_env, str(database_proj))
+
+        # `data` is an exact registered project, so this is single mode — not bulk.
+        # To force the bulk branch, register a child of `data` and call with `data` as a
+        # prefix that's NOT itself registered.
+        # Reset: deregister `/tmp/data` by removing it from all sources, then add `/tmp/data/sub`.
+        claude_json_data = json.loads(mock_claude_env["claude_json_file"].read_text())
+        del claude_json_data["projects"][str(data_proj)]
+        mock_claude_env["claude_json_file"].write_text(json.dumps(claude_json_data))
+
+        history_lines = mock_claude_env["history_file"].read_text().splitlines()
+        kept = [
+            line for line in history_lines
+            if line.strip() and json.loads(line).get("project") != str(data_proj)
+        ]
+        mock_claude_env["history_file"].write_text("\n".join(kept) + ("\n" if kept else ""))
+
+        # Remove `data`'s projects/ entry too
+        data_dirname = normalize_path_to_dirname(str(data_proj))
+        import shutil as _shutil
+        _shutil.rmtree(mock_claude_env["projects_dir"] / data_dirname)
+
+        # Now register a child so `data` is only a prefix
+        (data_proj / "sub").mkdir()
+        _register_mock_project(mock_claude_env, str(data_proj / "sub"))
+
+        result = move_project(
+            mock_claude_env["config"],
+            str(data_proj),
+            str(temp_dir / "X"),
+            dry_run=False,
+            no_backup=True,
+            yes=True,
+        )
+
+        assert result == 0
+
+        all_paths = find_all_project_paths(mock_claude_env["config"])
+        # `data/sub` was renamed
+        assert str(temp_dir / "X" / "sub") in all_paths
+        assert str(data_proj / "sub") not in all_paths
+        # `database` was NOT touched
+        assert str(database_proj) in all_paths
+
+    def test_move_prefix_collision_detected(self, mock_claude_env):
+        """If a computed new_p collides with an unrelated registered project, abort."""
+        temp_dir = mock_claude_env["claude_dir"].parent
+        old_parent = temp_dir / "parent"
+        new_parent = temp_dir / "renamed"
+
+        (old_parent / "projA").mkdir(parents=True)
+        _register_mock_project(mock_claude_env, str(old_parent / "projA"))
+
+        # Pre-register the target path so it collides
+        (new_parent / "projA").mkdir(parents=True)
+        _register_mock_project(mock_claude_env, str(new_parent / "projA"))
+
+        before = find_all_project_paths(mock_claude_env["config"])
+
+        result = move_project(
+            mock_claude_env["config"],
+            str(old_parent),
+            str(new_parent),
+            dry_run=False,
+            no_backup=True,
+            yes=True,
+        )
+
+        assert result == 1
+        # Nothing was changed
+        after = find_all_project_paths(mock_claude_env["config"])
+        assert set(before.keys()) == set(after.keys())
+        assert old_parent.exists()
+
+    def test_move_prefix_includes_exact_match(self, mock_claude_env):
+        """OLD is itself a registered project AND a prefix of others (Claude run in repo + subdir)."""
+        temp_dir = mock_claude_env["claude_dir"].parent
+        old_parent = temp_dir / "repo"
+        new_parent = temp_dir / "renamed"
+
+        # Register both the parent and a subdirectory as projects
+        (old_parent / "sub").mkdir(parents=True)
+        _register_mock_project(mock_claude_env, str(old_parent))
+        _register_mock_project(mock_claude_env, str(old_parent / "sub"))
+
+        result = move_project(
+            mock_claude_env["config"],
+            str(old_parent),
+            str(new_parent),
+            dry_run=False,
+            no_backup=True,
+            yes=True,
+        )
+
+        assert result == 0
+
+        all_paths = find_all_project_paths(mock_claude_env["config"])
+        # Both the parent project and its registered subdir are rewritten
+        assert str(new_parent) in all_paths
+        assert str(new_parent / "sub") in all_paths
+        assert str(old_parent) not in all_paths
+        assert str(old_parent / "sub") not in all_paths
+
+        # Folder physically moved at the parent level
+        assert not old_parent.exists()
+        assert (new_parent / "sub").exists()
+
+    def test_move_prefix_folder_move_once(self, mock_claude_env):
+        """When parent exists and target doesn't, a single shutil.move at parent level is used."""
+        temp_dir = mock_claude_env["claude_dir"].parent
+        old_parent = temp_dir / "parent"
+        new_parent = temp_dir / "renamed"
+
+        for name in ["projA", "projB"]:
+            (old_parent / name).mkdir(parents=True)
+            _register_mock_project(mock_claude_env, str(old_parent / name))
+
+        with patch("clauding.commands.move.shutil.move") as mock_move:
+            result = move_project(
+                mock_claude_env["config"],
+                str(old_parent),
+                str(new_parent),
+                dry_run=False,
+                no_backup=True,
+                yes=True,
+            )
+
+        assert result == 0
+        # shutil.move called exactly once (at the parent level), not per-project
+        assert mock_move.call_count == 1
+        args, _ = mock_move.call_args
+        assert args == (str(old_parent), str(new_parent))

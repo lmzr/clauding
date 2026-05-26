@@ -37,6 +37,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Skip creating a backup before changes",
     )
+    parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip confirmation prompt in bulk-rename mode",
+    )
     parser.set_defaults(func=execute)
 
 
@@ -56,7 +61,8 @@ def execute(args: argparse.Namespace) -> int:
     old_path = str(Path(args.old_path).resolve())
     new_path = str(Path(args.new_path).resolve())
 
-    return move_project(config, old_path, new_path, args.dry_run, args.no_backup)
+    yes = getattr(args, "yes", False)
+    return move_project(config, old_path, new_path, args.dry_run, args.no_backup, yes)
 
 
 def move_project(
@@ -65,15 +71,23 @@ def move_project(
     new_path: str,
     dry_run: bool = False,
     no_backup: bool = False,
+    yes: bool = False,
 ) -> int:
     """
     Move a project from old path to new path.
 
-    Behavior:
-    - If OLD exists and NEW doesn't: move folder, then update metadata
-    - If OLD exists and NEW is a directory: move OLD inside NEW
-    - If OLD doesn't exist and NEW exists: skip folder move, only update metadata
-    - Neither exists: error
+    Routing:
+    - If OLD is the only registered project at that path (no descendants):
+      single-project move
+        - If OLD exists and NEW doesn't: move folder, then update metadata
+        - If OLD exists and NEW is a directory: move OLD inside NEW
+        - If OLD doesn't exist and NEW exists: skip folder move, only update metadata
+        - Neither exists: error
+    - If OLD is a prefix of one or more registered projects (with or without
+      OLD itself also being registered): bulk-rename mode, rewriting every
+      matching project by replacing the OLD prefix with NEW. OLD itself is
+      included in the bulk mapping when it is also a registered project
+      (e.g. Claude Code launched in both a repo and one of its subdirectories).
     """
     old_p = Path(old_path)
     new_p = Path(new_path)
@@ -86,6 +100,30 @@ def move_project(
     if new_p.exists() and not new_p.is_dir():
         print(f"Error: Destination is not a directory: {new_path}")
         return 1
+
+    # Detect bulk-rename mode: OLD is a prefix of one or more registered
+    # projects. OLD itself may or may not also be a registered project — both
+    # cases happen (e.g. Claude Code launched in a repo and again in one of its
+    # subdirectories). When OLD is also registered, it is included in the bulk
+    # mapping so its own metadata is rewritten alongside its descendants.
+    # Done before the "move into existing dir" mutation below, which only
+    # makes sense for a single-project move.
+    all_paths = find_all_project_paths(config)
+    prefix = old_path + "/"
+    children = sorted(p for p in all_paths if p.startswith(prefix))
+    if children:
+        matches = ([old_path] if old_path in all_paths else []) + children
+        # Self-move guard for the parent path
+        if old_path == new_path:
+            print(f"Error: Source and destination are the same")
+            return 1
+        if new_path.startswith(old_path + "/"):
+            print(f"Error: Cannot move a folder into itself")
+            return 1
+        return _move_prefix(
+            config, old_path, new_path, matches, all_paths,
+            dry_run, no_backup, yes,
+        )
 
     # If both exist as directories, move source inside destination
     if old_p.exists() and new_p.exists():
@@ -119,7 +157,6 @@ def move_project(
         return 1
 
     # Check that old path is referenced in Claude config
-    all_paths = find_all_project_paths(config)
     if old_path not in all_paths:
         print(f"Error: Path not found in Claude config: {old_path}")
         return 1
@@ -162,6 +199,84 @@ def move_project(
     _update_metadata(config, old_path, new_path)
 
     print("Done.")
+    return 0
+
+
+def _move_prefix(
+    config: ClaudeConfig,
+    old_path: str,
+    new_path: str,
+    matches: list,
+    all_paths: dict,
+    dry_run: bool,
+    no_backup: bool,
+    yes: bool,
+) -> int:
+    """
+    Bulk-rename mode: OLD is a prefix of multiple registered projects.
+
+    Rewrites every matching project's path by replacing the OLD prefix with NEW.
+    Optionally moves the parent folder once when OLD exists on disk and NEW
+    does not. Falls back to metadata-only otherwise.
+    """
+    old_prefix_len = len(old_path)
+    mapping = {p: new_path + p[old_prefix_len:] for p in matches}
+
+    # Collision check: any new target that points to an unrelated registered project
+    matches_set = set(matches)
+    for src, dst in mapping.items():
+        if dst in all_paths and dst not in matches_set:
+            print(f"Error: Target path already exists in Claude config: {dst}")
+            print(f"  (would conflict with rename {src} -> {dst})")
+            return 1
+
+    # Folder move planning
+    old_p = Path(old_path)
+    new_p = Path(new_path)
+    need_folder_move = old_p.exists() and not new_p.exists()
+
+    # Print plan
+    marker = "[DRY RUN] " if dry_run else ""
+    print(f"{marker}Bulk rename: {old_path} -> {new_path}")
+    print(f"{marker}  {len(matches)} project(s) affected:")
+    for src in matches:
+        print(f"{marker}    {src} -> {mapping[src]}")
+    if need_folder_move:
+        print(f"{marker}  Folder: will be moved ({old_path} -> {new_path})")
+    elif new_p.exists() and not old_p.exists():
+        print(f"{marker}  Folder: already moved (metadata-only)")
+    else:
+        print(f"{marker}  Folder: not moved (metadata-only)")
+
+    if dry_run:
+        return 0
+
+    # Single confirmation
+    if not yes:
+        confirm = input("\nProceed? [y/N]: ").strip().lower()
+        if confirm != "y":
+            print("Cancelled.")
+            return 0
+
+    # Backup
+    if not no_backup:
+        backup_path = create_backup(config)
+        print(f"Backup: {backup_path}")
+
+    # Folder move (once at the parent level)
+    if need_folder_move:
+        new_parent = new_p.parent
+        if not new_parent.exists():
+            print(f"Error: Destination parent does not exist: {new_parent}")
+            return 1
+        shutil.move(old_path, new_path)
+        print(f"Moved folder: {old_path} -> {new_path}")
+
+    # Per-project metadata update
+    for src, dst in mapping.items():
+        _update_metadata(config, src, dst)
+
+    print(f"Done. Updated {len(matches)} project(s).")
     return 0
 
 

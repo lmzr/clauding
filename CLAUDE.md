@@ -27,7 +27,8 @@ pip install -e ".[dev]"
 clauding list [paths...]           # List all or specific projects
 clauding list --problems           # Show only missing paths
 clauding move                      # Interactive wizard mode
-clauding move OLD NEW              # Direct move
+clauding move OLD NEW              # Direct move (single project)
+clauding move OLD_PARENT NEW_PARENT # Bulk rename when OLD_PARENT is a prefix of one or more registered projects (auto-detected; OLD_PARENT itself is included if also registered; asks one confirmation, --yes/-y to skip)
 clauding clean                     # Interactive cleanup
 clauding clean --force             # Clean all without prompts
 clauding backups                   # List all backups

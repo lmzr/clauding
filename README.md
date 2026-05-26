@@ -53,26 +53,49 @@ clauding list /path/to/project --json
 
 ### Move Project
 
-Move a project folder and update all Claude Code references.
+Move a project folder and update all Claude Code references. Auto-detects
+between **single-project mode** (OLD is an exact registered project path) and
+**bulk-rename mode** (OLD is a parent directory containing several registered
+projects).
 
 ```bash
 # Interactive wizard mode (finds orphaned projects)
 clauding move
 
-# Direct move (moves folder + updates metadata)
+# Single-project move (moves folder + updates metadata)
 clauding move /old/path /new/path
 
-# Preview changes without applying
+# Bulk rename of an intermediate folder (auto-detected when OLD is a prefix
+# of multiple registered projects). Lists affected projects and asks for a
+# single confirmation. The parent folder is moved once on disk if possible;
+# all child projects' metadata is rewritten.
+clauding move /old/parent /new/parent
+
+# Skip the bulk-mode confirmation prompt
+clauding move /old/parent /new/parent --yes
+
+# Preview changes without applying (single or bulk)
 clauding move /old/path /new/path --dry-run
 ```
 
-**Behavior:**
+**Single-project behavior** (OLD is an exact registered project path):
 - If OLD exists and NEW doesn't: moves folder, then updates metadata
 - If OLD exists and NEW is a directory: moves OLD inside NEW (e.g., `/a/proj` → `/b/` becomes `/b/proj`)
 - If OLD doesn't exist and NEW exists: only updates metadata (folder already moved)
 - Neither exists: error
+
+**Bulk-rename behavior** (OLD is a prefix of one or more registered projects — prefix-of-path match, not substring):
+- Triggered as soon as any registered project starts with `OLD/`. OLD itself may also be a registered project (e.g. Claude Code launched in a repo AND in one of its subdirectories) — in that case OLD is included in the rewrite alongside its descendants
+- Lists every affected project (`OLD/child → NEW/child`, plus `OLD → NEW` when applicable) and asks one `y/N` confirmation (skip with `--yes`)
+- If OLD exists on disk and NEW doesn't: a single `shutil.move(OLD, NEW)` is performed — child folders follow physically
+- Otherwise: metadata-only (no folder move on disk)
+- Per-project metadata is rewritten in all three locations (`~/.claude/projects/`, `history.jsonl`, `~/.claude.json`)
+- Aborts before any write if a target path collides with an unrelated registered project
+
+**Common rules:**
 - Files are rejected (directories only)
 - Moving a folder into itself is prevented
+- A backup is created automatically before any write (skip with `--no-backup`)
 
 ### Clean Orphaned References
 
@@ -121,6 +144,7 @@ clauding backups --prune --keep 5 --force
 |------|----------|-------------|
 | `--dry-run`, `-n` | move, clean, backups | Preview without changes |
 | `--force`, `-f` | clean, backups | Skip confirmation prompts |
+| `--yes`, `-y` | move | Skip confirmation prompt in bulk-rename mode |
 | `--problems`, `-p` | list | Show only missing paths |
 | `--json`, `-j` | list, backups | JSON output |
 | `--path`, `-p` | clean | Specific path to clean |
