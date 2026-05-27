@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -326,13 +327,20 @@ def _update_metadata(config: ClaudeConfig, old_path: str, new_path: str) -> None
 
 
 def _update_jsonl_file(file_path: Path, old_path: str, new_path: str) -> None:
-    """Update all occurrences of old_path with new_path in a JSONL file."""
+    """Update all occurrences of old_path with new_path in a JSONL file.
+
+    Path-aware: only matches old_path when followed by a path boundary —
+    either '/' (next path segment) or '"' (end of a JSON string). Prevents
+    substring corruption like '/a/Projets' silently replacing inside
+    '/a/Projets_LS'.
+    """
+    pattern = re.compile(re.escape(old_path) + r'(?=["/])')
     temp_file = file_path.with_suffix(".jsonl.tmp")
 
     with open(file_path, "r", encoding="utf-8") as f_in:
         with open(temp_file, "w", encoding="utf-8") as f_out:
             for line in f_in:
-                updated_line = line.replace(old_path, new_path)
+                updated_line = pattern.sub(new_path, line)
                 f_out.write(updated_line)
 
     temp_file.replace(file_path)

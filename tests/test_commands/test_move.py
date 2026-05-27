@@ -495,6 +495,56 @@ class TestMovePrefix:
         assert not old_parent.exists()
         assert (new_parent / "sub").exists()
 
+    def test_move_prefix_does_not_corrupt_sibling_paths(self, mock_claude_env):
+        """Moving '/foo/Projets' must not rewrite the substring inside sibling '/foo/Projets_LS'.
+
+        Regression: `_update_jsonl_file` used a naive str.replace, so renaming the
+        registered project `/foo/Projets` to `/foo/Projets_LM` corrupted the
+        sibling `/foo/Projets_LS` into `/foo/Projets_LM_LS` inside history.jsonl.
+        """
+        temp_dir = mock_claude_env["claude_dir"].parent
+        parent = temp_dir / "Projets"
+        sibling = temp_dir / "Projets_LS"
+        child = parent / "child"
+
+        # Register parent (exact match), a child (so we enter bulk mode), and a sibling
+        parent.mkdir()
+        child.mkdir()
+        sibling.mkdir()
+        _register_mock_project(mock_claude_env, str(parent))
+        _register_mock_project(mock_claude_env, str(child))
+        _register_mock_project(mock_claude_env, str(sibling))
+
+        new_parent = temp_dir / "Projets_LM"
+
+        result = move_project(
+            mock_claude_env["config"],
+            str(parent),
+            str(new_parent),
+            dry_run=False,
+            no_backup=True,
+            yes=True,
+        )
+
+        assert result == 0
+
+        all_paths = find_all_project_paths(mock_claude_env["config"])
+        # Parent and its child were rewritten
+        assert str(new_parent) in all_paths
+        assert str(new_parent / "child") in all_paths
+        assert str(parent) not in all_paths
+        # Sibling MUST be untouched — not renamed to `/foo/Projets_LM_LS`
+        assert str(sibling) in all_paths
+        assert str(temp_dir / "Projets_LM_LS") not in all_paths
+
+        # Verify history.jsonl content directly
+        history_lines = mock_claude_env["history_file"].read_text().splitlines()
+        projects_in_history = {
+            json.loads(line)["project"] for line in history_lines if line.strip()
+        }
+        assert str(sibling) in projects_in_history
+        assert str(temp_dir / "Projets_LM_LS") not in projects_in_history
+
     def test_move_prefix_folder_move_once(self, mock_claude_env):
         """When parent exists and target doesn't, a single shutil.move at parent level is used."""
         temp_dir = mock_claude_env["claude_dir"].parent
