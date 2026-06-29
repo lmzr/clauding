@@ -297,6 +297,47 @@ class TestExecuteRelativePaths:
             os.chdir(original_cwd)
 
 
+class TestMoveUnicodeNormalization:
+    """Regression tests for NFC/NFD Unicode mismatch (macOS APFS)."""
+
+    def test_execute_nfd_old_path_matches_nfc_config(self, mock_claude_env):
+        """An accented OLD path in NFD form must match the NFC-stored config.
+
+        Claude Code stores cwd in NFC ("Systèmes"), but macOS Path.resolve()
+        returns NFD (decomposed "Systèmes"). Without NFC normalization,
+        execute() reports a misleading "Path not found in Claude config".
+        """
+        import unicodedata
+
+        temp_dir = mock_claude_env["claude_dir"].parent
+        # Register the project under its NFC (composed) accented path.
+        nfc_path = unicodedata.normalize("NFC", str(temp_dir / "Systèmes"))
+        assert "̀" not in nfc_path  # truly composed
+        _register_mock_project(mock_claude_env, nfc_path)
+
+        # Simulate what macOS resolve() yields: the decomposed (NFD) form.
+        nfd_path = unicodedata.normalize("NFD", nfc_path)
+        assert nfd_path != nfc_path  # the two byte forms genuinely differ
+
+        # Metadata-only case (destination exists, source already gone): this
+        # reaches the config-membership check, which is exactly what the NFC
+        # normalization fixes. Avoids platform-dependent on-disk normalization.
+        new_path = str(temp_dir / "Renamed")
+        Path(new_path).mkdir(parents=True)
+
+        args = Namespace(
+            claude_dir=mock_claude_env["claude_dir"],
+            old_path=nfd_path,
+            new_path=new_path,
+            dry_run=True,
+            no_backup=True,
+            yes=False,
+        )
+
+        # Must succeed (exit 0), not fail with "not found in Claude config".
+        assert execute(args) == 0
+
+
 class TestMovePrefix:
     """Tests for bulk-rename mode (OLD is a prefix of multiple projects)."""
 

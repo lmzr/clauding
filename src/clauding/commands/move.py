@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import shutil
+import unicodedata
 from pathlib import Path
 
 from clauding.core.config import ClaudeConfig
@@ -46,6 +47,17 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser.set_defaults(func=execute)
 
 
+def _nfc(path: str) -> str:
+    """Normalize a path string to Unicode NFC form.
+
+    Claude Code stores cwd paths in NFC, but macOS filesystem APIs
+    (Path.resolve(), os.getcwd()) return NFD on APFS. Comparing the two forms
+    directly fails for accented paths, so all user-supplied paths are coerced
+    to NFC before matching against the config or deriving directory names.
+    """
+    return unicodedata.normalize("NFC", path)
+
+
 def execute(args: argparse.Namespace) -> int:
     """Execute the move command."""
     config = ClaudeConfig(claude_dir=args.claude_dir)
@@ -58,9 +70,13 @@ def execute(args: argparse.Namespace) -> int:
         print("Error: Both OLD_PATH and NEW_PATH are required")
         return 1
 
-    # Convert to absolute paths (Claude stores absolute paths)
-    old_path = str(Path(args.old_path).resolve())
-    new_path = str(Path(args.new_path).resolve())
+    # Convert to absolute paths (Claude stores absolute paths).
+    # Normalize to NFC: Path.resolve() returns the on-disk form, which on macOS
+    # (APFS) is NFD (decomposed accents, e.g. "Systèmes"), whereas Claude
+    # Code stores cwd in NFC ("Système..."). Without this, an accented relative
+    # path would fail to match the config with a misleading "not found" error.
+    old_path = _nfc(str(Path(args.old_path).resolve()))
+    new_path = _nfc(str(Path(args.new_path).resolve()))
 
     yes = getattr(args, "yes", False)
     return move_project(config, old_path, new_path, args.dry_run, args.no_backup, yes)
@@ -399,7 +415,7 @@ def interactive_mode(config: ClaudeConfig, dry_run: bool, no_backup: bool) -> in
             if 0 <= idx < len(problems):
                 old_path, _ = problems[idx]
                 print(f"\nMoving: {old_path}")
-                new_path = input("New path: ").strip().strip("'\"")
+                new_path = _nfc(input("New path: ").strip().strip("'\""))
 
                 if not new_path:
                     print("Cancelled.")
